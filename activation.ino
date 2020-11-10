@@ -4,8 +4,9 @@
 
 /********** Function Declaration *************/
 
-void displayTime();
-void setTime();
+void      displayTime();
+void      setTime();
+DateTime* parseDate(char* input);
 
 /*************** RTC Variables ***************/
 
@@ -48,7 +49,7 @@ int curState;
 /****************** SETUP ********************/
 /*********************************************/
 
-int lastSecond = 0, curSecond;
+int lastSecond = 0;
 char lastKey = 'A';
 
 void setup() {
@@ -128,51 +129,59 @@ void loop() {
 
 }
 
+
+// Displays the current time (every second)
 void displayTime() {
 
+    // Retrieving the current DateTime object
     DateTime now = rtc.now();
 
-    curSecond = now.second();
+    int curSecond = now.second();
 
+    // If the time has passed (in terms of seconds), the display is updated
     if (lastSecond != curSecond) {
 
-      sprintf(lcdRow1,"Hoje e: %02d/%02d/%02d", now.day(), now.month(), now.year() - 2000);
-      sprintf(lcdRow2,"%02d:%02d:%02d", now.hour(), now.minute(), curSecond);
+        sprintf(lcdRow1,"AtivSys|%02d/%02d/%02d", now.day (), now.month (), now.year() - 2000);
+        sprintf(lcdRow2," v.1.0 |%02d:%02d:%02d", now.hour(), now.minute(), curSecond);
  
         lcd.clear();
         lcd.print(lcdRow1);
-        lcd.setCursor(8,1);
+        lcd.setCursor(0,1);
         lcd.print(lcdRow2);
 
-      /*Serial.print(lcdRow1);
-      Serial.print(" - ");
-      Serial.println(lcdRow2);*/
-      lastSecond = curSecond;
+        lastSecond = curSecond;
 
     }
 
 }
 
+// Allows the user to manually adjust the system's date and time
 void setTime() {
 
     int  index = 0;
+
+    // Stores the typed datetime (numbers only: 6 representing date + 6 representing time + 1 storing '\0')
     char input[13] = "";
 
-    //Serial.println("Digite o horário");
+    // Displays the menu
     lcd.clear();
-    lcd.print("Ajuste: __/__/__");
-    lcd.setCursor(8,1);
-    lcd.print("__:__:__");
+    lcd.print("Ajustar|__/__/__");
+    lcd.setCursor(0,1);
+    lcd.print(" Data  |__:__:__");
 
+    // Wait for user input until the '#' character is typed
     while ((key = keypad.getKey()) != '#') {
         
+        // If something has been typed...
         if (key != NO_KEY) {
 
+            // Backspace implementation
             if (key == '*') {
                 if (index > 0)
                   input[--index] = '\0';
             }
           
+            // Storing typed keys (limit: 12 characters)
             else if (index < 12) {
 
                 input[index++] = key;
@@ -180,26 +189,35 @@ void setTime() {
                     
             }
 
+            // Prints the typed datetime
             printTime(input);
             
         }
         
     }
 
+    // After pressing '*', if the datetime is complete...
     if (index == 12) {
 
+        // ...then it needs to be validated
         DateTime* datetime = parseDate(input);
 
+        lcd.clear();
+
+        // If the date is valid, then it's copied to the RTC module
         if (datetime != NULL) {
-            rtc.adjust(*datetime);
-            free(datetime);
-            Serial.println("Hora reajustada!");
+            
+            rtc.adjust(*datetime);  free(datetime);
+
+            lcd.print(" Data ajustada!");
+            
         }
         else
-          Serial.println("Hora inválida!");
-      
+            lcd.print(" Data invalida!");
+        
+        delay(3000);
+
     }
-    
 
 }
 
