@@ -4,9 +4,9 @@
 
 /********** Function Declaration *************/
 
-void      displayTime();
-void      setTime();
-DateTime* parseDate(char* input);
+void     displayTime();
+void     setTime();
+DateTime extractDateTime(char* input);
 
 /*************** RTC Variables ***************/
 
@@ -190,7 +190,7 @@ void setTime() {
             }
 
             // Prints the typed datetime
-            printTime(input);
+            printDate(input);
             
         }
         
@@ -200,14 +200,14 @@ void setTime() {
     if (index == 12) {
 
         // ...then it needs to be validated
-        DateTime* datetime = parseDate(input);
+        DateTime datetime = extractDateTime(input);
 
         lcd.clear();
 
         // If the date is valid, then it's copied to the RTC module
-        if (datetime != NULL) {
+        if (datetime.isValid()) {
             
-            rtc.adjust(*datetime);  free(datetime);
+            rtc.adjust(datetime);
 
             lcd.print(" Data ajustada!");
             
@@ -221,8 +221,8 @@ void setTime() {
 
 }
 
-// Tests if a given date is valid, returns NULL it it's not!
-DateTime* parseDate(char* input) {
+// Creates a 'DateTime' object from the given 'input'
+DateTime extractDateTime(char* input) {
 
     // Converting the char input data (from keyboard) to integer values
     int   day = (input[0] - '0') * 10 + input[1] - '0';
@@ -232,50 +232,11 @@ DateTime* parseDate(char* input) {
     int hour = (input[ 6] - '0') * 10 + input[ 7] - '0';
     int  min = (input[ 8] - '0') * 10 + input[ 9] - '0';
     int  sec = (input[10] - '0') * 10 + input[11] - '0';
-    
-    /*********************** General input validation ***********************/
 
-    if ((month <  1) || (month > 12) ||     // for month (between 1-12),
-        (  day <  1) || (  day > 31) ||     // days (between 1-31),
-        ( hour > 23) ||                     // hours (up to 23),
-        (  min > 59) ||                     // minutes (up to 59),
-        (  sec > 59)                        // and seconds (up to 59)
-       )
-       return NULL;
-    
-    /****** Specific input validation (considering days of each month) ******/
-
-    if (month == 2) {                                                   // If it's February,
-
-        if (year % 4 == 0 && (year % 400 == 0 || year % 100 != 0)) {    // the year is leap,
-            if (day > 29)                                               // and it has more than 29 days,
-                return NULL;                                            // then we have an exception
-        }
-        else if (day > 28)                                              // otherwise, if the year is not leap and it has more than 28 days,
-            return NULL;                                                // we have another exception
-    
-    }
-    
-    if (month < 8) {                                // If the month is between January and July (except February)   
-        if (((month % 2) == 0) && (day > 30))       // then we do some calculations to determine their valid maximum number of days.
-            return NULL;
-    }
-    else { 
-        if (((month % 2) != 0) && (day > 30))       // The same happens here, but for months between August and December.
-            return NULL;  
-    }
-
-    // If we're here, that means the datetime is valid, so it's time to create and return the object.
-    DateTime  local = DateTime(year,month,day,hour,min,sec);
-    DateTime* point = (DateTime*) malloc(sizeof(DateTime));
-
-    memcpy(point,&local,sizeof(DateTime));
-
-    return point;
-
+    return DateTime(year,month,day,hour,min,sec);
 }
 
-void printTime(char* input) {
+void printDate(char* input) {
 
     sprintf(lcdRow1,"__/__/__");
     sprintf(lcdRow2,"__:__:__");
@@ -305,9 +266,6 @@ void printTime(char* input) {
         
     }
 
-    /*Serial.print(lcdRow1);
-    Serial.print(" - ");
-    Serial.println(lcdRow2);*/
     lcd.setCursor(8,0);
     lcd.print(lcdRow1);
     lcd.setCursor(8,1);
