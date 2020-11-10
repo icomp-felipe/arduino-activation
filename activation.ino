@@ -8,6 +8,10 @@ void     displayTime();
 void     setTime();
 DateTime extractDateTime(char* input);
 
+/*************** Pin Variables ***************/
+int R1 = A3;
+int R2 = A2;
+
 /*************** RTC Variables ***************/
 
 // RTC DS3231 Object
@@ -53,6 +57,10 @@ int lastSecond = 0;
 char lastKey = 'A';
 
 void setup() {
+
+    // Configuring pins
+    pinMode(R1, OUTPUT);
+    pinMode(R2, OUTPUT);
 
     // Initializing 16x2 display
     lcd.begin(16, 2);
@@ -129,6 +137,10 @@ void loop() {
 
 }
 
+DateTime a = DateTime(0,0,0,7,30,0);
+DateTime b = DateTime(0,0,0,18,0,0);
+
+uint8_t R1State = HIGH, R2State = LOW;
 
 // Displays the current time (every second)
 void displayTime() {
@@ -148,6 +160,57 @@ void displayTime() {
         lcd.print(lcdRow1);
         lcd.setCursor(0,1);
         lcd.print(lcdRow2);
+
+        uint8_t R1StateExpected, R2StateExpected;
+
+        if (greater(&now,&a) && lower(&now,&b)) {
+
+            R1StateExpected = HIGH;
+            R2StateExpected = LOW ;
+
+        }
+        else {
+
+            R1StateExpected = LOW ;
+            R2StateExpected = HIGH;
+
+        }
+
+        if ((R1State != R1StateExpected) || (R2State != R2StateExpected)) {
+
+            if ((R1State == LOW) && (R1StateExpected == HIGH)) {
+
+                R1State = R1StateExpected;
+                digitalWrite(R1, R1State);
+
+            }
+            else if ((R1State == HIGH) && (R1StateExpected == LOW)) {
+
+                R1State = R1StateExpected;
+
+                delay(2000);
+                digitalWrite(R1, R1State);
+
+            }
+
+            if ((R2State == LOW) && (R2StateExpected == HIGH)) {
+
+                R2State = R2StateExpected;
+                digitalWrite(R2, R2State);
+
+            }
+            else if ((R2State == HIGH) && (R2StateExpected == LOW)) {
+
+                R2State = R2StateExpected;
+
+                delay(2000);
+                digitalWrite(R2, R2State);
+
+            }
+            
+
+
+        }
 
         lastSecond = curSecond;
 
@@ -271,4 +334,26 @@ void printDate(char* input) {
     lcd.setCursor(8,1);
     lcd.print(lcdRow2);
 
+}
+
+boolean lower(DateTime* a, DateTime* b) {
+	
+	return (a->hour() < b->hour() ||
+				(a->hour() == b->hour() &&
+					(a->minute() < b->minute() ||
+						(a->minute() == b->minute() && a->second() < b->second())
+					)
+				)
+			);
+}
+
+boolean greater(DateTime* a, DateTime* b) {
+	
+	return (a->hour() > b->hour() ||
+				(a->hour() == b->hour() &&
+					(a->minute() > b->minute() ||
+						(a->minute() == b->minute() && a->second() > b->second())
+					)
+				)
+			);
 }
