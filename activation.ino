@@ -12,6 +12,10 @@ DateTime extractDateTime(char* input);
 int R1 = A3;
 int R2 = A2;
 
+
+int RelayNewState, RelayState;
+enum relay { R1Active, R2Active };
+
 /*************** RTC Variables ***************/
 
 // RTC DS3231 Object
@@ -91,6 +95,9 @@ void setup() {
 
     }
 
+    RelayState = -1;
+    RelayNewState = R1Active;
+
     delay(100);
 
 }
@@ -135,12 +142,31 @@ void loop() {
         
     }
 
+    if (RelayState != RelayNewState) {
+
+        if (RelayNewState == R1Active) {
+
+            digitalWrite(R1, LOW);
+            delay(1000);
+            digitalWrite(R2, HIGH);
+
+        }
+        else if (RelayNewState == R2Active) {
+
+            digitalWrite(R2, LOW);
+            delay(1000);
+            digitalWrite(R1, HIGH);
+
+        }
+
+        RelayState = RelayNewState;
+
+    }
+
 }
 
 DateTime a = DateTime(0,0,0,7,30,0);
 DateTime b = DateTime(0,0,0,18,0,0);
-
-uint8_t R1State = HIGH, R2State = LOW;
 
 // Displays the current time (every second)
 void displayTime() {
@@ -161,56 +187,7 @@ void displayTime() {
         lcd.setCursor(0,1);
         lcd.print(lcdRow2);
 
-        uint8_t R1StateExpected, R2StateExpected;
-
-        if (greater(&now,&a) && lower(&now,&b)) {
-
-            R1StateExpected = HIGH;
-            R2StateExpected = LOW ;
-
-        }
-        else {
-
-            R1StateExpected = LOW ;
-            R2StateExpected = HIGH;
-
-        }
-
-        if ((R1State != R1StateExpected) || (R2State != R2StateExpected)) {
-
-            if ((R1State == LOW) && (R1StateExpected == HIGH)) {
-
-                R1State = R1StateExpected;
-                digitalWrite(R1, R1State);
-
-            }
-            else if ((R1State == HIGH) && (R1StateExpected == LOW)) {
-
-                R1State = R1StateExpected;
-
-                delay(2000);
-                digitalWrite(R1, R1State);
-
-            }
-
-            if ((R2State == LOW) && (R2StateExpected == HIGH)) {
-
-                R2State = R2StateExpected;
-                digitalWrite(R2, R2State);
-
-            }
-            else if ((R2State == HIGH) && (R2StateExpected == LOW)) {
-
-                R2State = R2StateExpected;
-
-                delay(2000);
-                digitalWrite(R2, R2State);
-
-            }
-            
-
-
-        }
+        RelayNewState = (greater(&now,&a) && lower(&now,&b)) ? R1Active : R2Active;
 
         lastSecond = curSecond;
 
