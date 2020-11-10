@@ -1,7 +1,11 @@
-#include <Wire.h>
-#include <RTClib.h>
 #include <Keypad.h>
 #include <LiquidCrystal.h>
+#include <RTClib.h>
+
+/********** Function Declaration *************/
+
+void displayTime();
+void setTime();
 
 /*************** RTC Variables ***************/
 
@@ -49,28 +53,42 @@ char lastKey = 'A';
 
 void setup() {
 
-    // Starting serial interface (testing mode only)
-    Serial.begin(9600);
-
+    // Initializing 16x2 display
     lcd.begin(16, 2);
 
     // Setting default variable values
     curState = menuShowTime;
 
-    // Test if the RTC module has lost power. If the answer is 'true', then the user needs to manually adjust the time
-    if (rtc.lostPower())
-        curState = menuSetTime;
+    // Testing if the RTC module is present
+    if (!rtc.begin()) {
 
-    rtc.begin();
+        while (true) {
+
+            lcd.clear();
+            lcd.print("Modulo relogio");
+            lcd.setCursor(0,1);
+            lcd.print("nao encontrado");
+
+            delay(3000);
+
+            lcd.clear();
+            lcd.print("Verifique o mo-");
+            lcd.setCursor(0,1);
+            lcd.print("dulo e reinicie");
+
+            delay(3000);
+
+        }
+
+    }
+
+    delay(100);
 
 }
 
 /*********************************************/
 /******************* LOOP ********************/
 /*********************************************/
-
-void displayTime();
-void setTime();
 
 void loop() {
 
