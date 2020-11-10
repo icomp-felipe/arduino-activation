@@ -181,8 +181,8 @@ void setTime() {
                   input[--index] = '\0';
             }
           
-            // Storing typed keys (limit: 12 characters)
-            else if (index < 12) {
+            // Storing typed keys (limited to 12 numeric characters)
+            else if ((index < 12) && (key >= '0') && (key <= '9')) {
 
                 input[index++] = key;
                 input[index] = '\0';
@@ -221,10 +221,10 @@ void setTime() {
 
 }
 
+// Tests if a given date is valid, returns NULL it it's not!
 DateTime* parseDate(char* input) {
 
-    boolean valid = true;
-  
+    // Converting the char input data (from keyboard) to integer values
     int   day = (input[0] - '0') * 10 + input[1] - '0';
     int month = (input[2] - '0') * 10 + input[3] - '0';
     int  year = (input[4] - '0') * 10 + input[5] - '0' + 2000;
@@ -233,55 +233,46 @@ DateTime* parseDate(char* input) {
     int  min = (input[ 8] - '0') * 10 + input[ 9] - '0';
     int  sec = (input[10] - '0') * 10 + input[11] - '0';
     
-    if ((month <  1) || (month > 12) ||
-        (  day <  1) || (  day > 31) ||
-        ( hour > 23) ||
-        (  min > 59) ||
-        (  sec > 59)
+    /*********************** General input validation ***********************/
+
+    if ((month <  1) || (month > 12) ||     // for month (between 1-12),
+        (  day <  1) || (  day > 31) ||     // days (between 1-31),
+        ( hour > 23) ||                     // hours (up to 23),
+        (  min > 59) ||                     // minutes (up to 59),
+        (  sec > 59)                        // and seconds (up to 59)
        )
-       valid = false;
+       return NULL;
     
-    else {
-    
-    if (month == 2) { // If it's february,
-      if (year % 4 == 0 && (year % 400 == 0 || year % 100 != 0)) { // the year is leap,
-        if (day > 29)
-          valid = false;
-      }
-      else if (day > 28)
-        valid = false;
+    /****** Specific input validation (considering days of each month) ******/
+
+    if (month == 2) {                                                   // If it's February,
+
+        if (year % 4 == 0 && (year % 400 == 0 || year % 100 != 0)) {    // the year is leap,
+            if (day > 29)                                               // and it has more than 29 days,
+                return NULL;                                            // then we have an exception
+        }
+        else if (day > 28)                                              // otherwise, if the year is not leap and it has more than 28 days,
+            return NULL;                                                // we have another exception
     
     }
     
-    else {    // If it's not February
-      
-      if (month < 8) {
-        
-        if (((month % 2) == 0) && (day > 30))
-          valid = false;
-        
-      }
-      else {
-        
-        if (((month % 2) != 0) && (day > 30))
-          valid = false;
-        
-      }
-      
+    if (month < 8) {                                // If the month is between January and July (except February)   
+        if (((month % 2) == 0) && (day > 30))       // then we do some calculations to determine their valid maximum number of days.
+            return NULL;
     }
-  }
+    else { 
+        if (((month % 2) != 0) && (day > 30))       // The same happens here, but for months between August and December.
+            return NULL;  
+    }
 
-  if (valid) {
-    
-      DateTime  local = DateTime(year,month,day,hour,min,sec);
-      DateTime* point = (DateTime*) malloc(sizeof(DateTime));
+    // If we're here, that means the datetime is valid, so it's time to create and return the object.
+    DateTime  local = DateTime(year,month,day,hour,min,sec);
+    DateTime* point = (DateTime*) malloc(sizeof(DateTime));
 
-      memcpy(point,&local,sizeof(DateTime));
+    memcpy(point,&local,sizeof(DateTime));
 
-      return point;
-  }
+    return point;
 
-  return NULL;
 }
 
 void printTime(char* input) {
