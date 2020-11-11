@@ -11,6 +11,9 @@
 const int   ACTIVATION_TIME_ADDR = 0;
 const int DEACTIVATION_TIME_ADDR = 6;
 
+const int   ACTIVATION_DAY_ADDR = 12;
+const int DEACTIVATION_DAY_ADDR = 14;
+
 /*************** LCD Variables ***************/
 
 // LCD 16x2 Rows
@@ -63,6 +66,7 @@ const RTC_DS3231 rtc;
 int lastSecond;
 DateTime now;
 DateTime activationTime, deactivationTime;
+int      activationDay , deactivationDay ;
 
 /*********************************************/
 /****************** SETUP ********************/
@@ -111,6 +115,9 @@ void setup() {
     // Retrieving data from EEPROM
     activationTime   = DateTimeUtils::readTime(  ACTIVATION_TIME_ADDR);
     deactivationTime = DateTimeUtils::readTime(DEACTIVATION_TIME_ADDR);
+
+    activationDay   = DateTimeUtils::readDay(  ACTIVATION_DAY_ADDR);
+    deactivationDay = DateTimeUtils::readDay(DEACTIVATION_DAY_ADDR);
 
     delay(100);
 
@@ -167,7 +174,8 @@ void loop() {
             menuCurrentState = menuShowDateTime;
             break;
         
-        case menuDateTimeActivation:
+        case menuDateActivation:
+            setDateActivation();
             menuCurrentState = menuShowDateTime;
             break;
         
@@ -242,7 +250,7 @@ void setDateTime() {
     lcd.print(" Data  |__:__:__");
 
     // Stores the typed datetime (numbers only: 6 representing date + 6 representing time + 1 storing '\0')
-    char buffer[13];
+    char buffer[13] = "";
     
     // Retrieve keyboard numeric data (until '*' is pressed)
     boolean bufferIsComplete = readKeyboardInput(buffer,12,printDate);
@@ -275,11 +283,13 @@ void setDateTime() {
 // Enables the user to set the activation/deactivation times
 void setTimeActivation() {
 
-    // This will be only run when EEPROM has no DateTime data for the activation function
+    // If both previously saved times are valid, then they're printed to the LCD strings
     if (activationTime.isValid() && deactivationTime.isValid()) {
         sprintf(lcdRow1, " Liga  |%02d:%02d:%02d", activationTime  .hour(), activationTime  .minute(), activationTime  .second());
         sprintf(lcdRow2, "Desliga|%02d:%02d:%02d", deactivationTime.hour(), deactivationTime.minute(), deactivationTime.second());
     }
+
+    // This will be only run when EEPROM has no DateTime data for the time activation function
     else {
         sprintf(lcdRow1, " Liga  |__:__:__");
         sprintf(lcdRow2, "Desliga|__:__:__");
@@ -292,9 +302,9 @@ void setTimeActivation() {
     lcd.print(lcdRow2);
 
     // Stores the typed times (numbers only: 6 representing the activation time + 6 representing the deactivation time + 1 storing '\0')
-    char buffer[13];
+    char buffer[13] = "";
     
-    // Retrieve keyboard numeric data (until '*' is pressed)
+    // Retrieve keyboard numeric data (until '#' is pressed)
     boolean bufferIsComplete = readKeyboardInput(buffer,12,printTime);
     
     // If the buffer data is complete (all 12 numeric characters have been typed)...
@@ -348,9 +358,105 @@ void setTimeActivation() {
 
 }
 
+// Enables the user to set the activation/deactivation days
+void setDateActivation() {
+
+    // If both previously saved days are valid, then they're printed to the LCD strings
+    if (DateTimeUtils::dayIsValid(activationDay) && DateTimeUtils::dayIsValid(deactivationDay)) {
+        sprintf(lcdRow1, "   Liga dia: %02d",   activationDay);
+        sprintf(lcdRow2, "Desliga dia: %02d", deactivationDay);
+    }
+
+    // This will be only run when EEPROM has no data for the day activation function
+    else {
+        sprintf(lcdRow1, "   Liga dia: __");
+        sprintf(lcdRow2, "Desliga dia: __");
+    }
+
+    // Displays the menu
+    lcd.clear();
+    lcd.print(lcdRow1);
+    lcd.setCursor(0,1);
+    lcd.print(lcdRow2);
+
+    // Stores the typed times (numbers only: 2 representing the activation day + 2 representing the deactivation day + 1 storing '\0')
+    char buffer[5] = "";
+
+    // Retrieve keyboard numeric data (until '#' is pressed)
+    boolean bufferIsComplete = readKeyboardInput(buffer,4,printDay);
+    
+    // If the buffer data is complete (all 4 numeric characters have been typed)...
+    if (bufferIsComplete) {
+
+        // ...then, they need to be converted to 'int' values
+        int day1 = DateTimeUtils::extractDay(buffer,0);
+        int day2 = DateTimeUtils::extractDay(buffer,2);
+
+        lcd.clear();
+
+        // If the days are valid...
+        if (DateTimeUtils::dayIsValid(day1) && DateTimeUtils::dayIsValid(day2)) {
+
+            // ...they'll be stored in Arduino's EEPROM only if they have been actually changed
+            if (activationDay != day1) {
+                DateTimeUtils::saveDay(day1, ACTIVATION_DAY_ADDR);
+                activationDay = day1;
+            }
+                
+            if (deactivationDay != day2) {
+                DateTimeUtils::saveDay(day2, DEACTIVATION_DAY_ADDR);
+                deactivationDay = day2;
+            }
+
+            lcd.print("Configuracao OK!"); 
+
+        }
+
+        // If the day(s) are not valid, an error message is shown
+        else {
+            lcd.setCursor(5,0);
+            lcd.print("Dia(s)");
+            lcd.setCursor(3,1);
+            lcd.print("Invalido(s)");
+        }
+
+        delay(3000);
+
+    }
+
+}
+
 /*********************************************/
 /*************** Utilities *******************/
 /*********************************************/
+
+// Prints the days as they're typed
+void printDay(char* input) {
+
+    // Defines the mask for the LCD rows
+    sprintf(lcdRow1,"__");
+    sprintf(lcdRow2,"__");
+
+    // Prints the actual data
+    for (int i=0; input[i] != '\0'; i++) {
+
+        // Calculating the first LCD row string
+        if (i < 2)
+            lcdRow1[i] = input[i];
+        
+        // Calculating the second LCD row string
+        else if (i < 4)
+            lcdRow2[i - 2] = input[i];
+        
+    }
+
+    // After calculating the strings, it's time to show them!
+    lcd.setCursor(13,0);
+    lcd.print(lcdRow1);
+    lcd.setCursor(13,1);
+    lcd.print(lcdRow2);
+
+}
 
 // Prints the dates or times as they're typed
 void printDateTime(char* input, boolean isTimeOnly) {
@@ -430,7 +536,7 @@ boolean readKeyboardInput(char* buffer, int length, void (*printer)(char*)) {
                   buffer[--index] = '\0';
             }
           
-            // Storing typed keys (limited to 12 numeric characters)
+            // Storing typed keys (limited to 'length' numeric characters)
             else if ((index < length) && (key >= '0') && (key <= '9')) {
 
                 buffer[index++] = key;
