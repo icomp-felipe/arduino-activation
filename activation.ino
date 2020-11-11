@@ -3,15 +3,13 @@
 #include <LiquidCrystal.h>
 #include <RTClib.h>
 
-/********** Function Declaration *************/
-
-void     displayTime();
-void     setTime();
-DateTime extractDateTime(char* input);
+// Custom libraries
+#include <DateTimeUtils.h>
+#include <EEPROMUtils.h>
 
 /************** Relay Variables **************/
-int R1 = A3;
-int R2 = A2;
+const int R1 = A3;
+const int R2 = A2;
 
 int RelayNewState, RelayState;
 enum relay { R1Active, R2Active };
@@ -19,13 +17,13 @@ enum relay { R1Active, R2Active };
 /*************** RTC Variables ***************/
 
 // RTC DS3231 Object
-RTC_DS3231 rtc;
+const RTC_DS3231 rtc;
 
 /*************** LCD Variables ***************/
 
 // LCD 16x2 Rows
 char lcdRow1[20], lcdRow2[20];
-LiquidCrystal lcd(A0, A1, 10, 11, 12, 13);
+const LiquidCrystal lcd(A0, A1, 10, 11, 12, 13);
 
 /************ Keyboard Variables *************/
 
@@ -33,7 +31,7 @@ LiquidCrystal lcd(A0, A1, 10, 11, 12, 13);
 char key;
 
 // Keyboard mapping (using 4x4 matrix)
-char keyMap[4][4] = {
+const char keyMap[4][4] = {
     {'1','2','3', 'A'},
     {'4','5','6', 'B'},
     {'7','8','9', 'C'},
@@ -41,23 +39,24 @@ char keyMap[4][4] = {
 };
 
 // Defining keyboard pin set for RTC module
-byte rowPins[4] = { 9, 8, 7, 6 };
-byte colPins[4] = { 5, 4, 3, 2 };
+const byte rowPins[4] = { 9, 8, 7, 6 };
+const byte colPins[4] = { 5, 4, 3, 2 };
 
 // Starting keypad lib object
-Keypad keypad = Keypad(makeKeymap(keyMap), rowPins, colPins, 4, 4);
+const Keypad keypad = Keypad(makeKeymap(keyMap), rowPins, colPins, 4, 4);
 
 /************** Menu Variables ***************/
 
 // State machine for menu control
-enum menu { menuShowTime, menuSetTime, menuFlipFlop };
+enum menu { menuShowTime, menuSetTime, menuFlipFlop, menuAlterDate };
 int curState;
 
 /*********************************************/
 /****************** SETUP ********************/
 /*********************************************/
 
-int lastSecond = 0;
+int lastSecond;
+DateTime now;
 
 void setup() {
 
@@ -70,6 +69,7 @@ void setup() {
 
     // Setting default variable values
     curState = menuShowTime;
+    lastSecond = 0;
 
     // Testing if the RTC module is present
     if (!rtc.begin()) {
@@ -106,8 +106,6 @@ void setup() {
 /******************* LOOP ********************/
 /*********************************************/
 
-DateTime now;
-
 void loop() {
 
     // Retrieving the current DateTime object
@@ -127,6 +125,10 @@ void loop() {
             
             case 'B':
                 curState = menuFlipFlop;
+                break;
+            
+            case 'C':
+                curState = menuAlterDate;
                 break;
 
         }
@@ -166,7 +168,7 @@ DateTime b = DateTime(0,0,0,18,0,0);
 
 void relayControl() {
 
-    RelayNewState = (greater(&now,&a) && lower(&now,&b)) ? R1Active : R2Active;
+    RelayNewState = (DateTimeUtils::greater(&now,&a) && DateTimeUtils::lower(&now,&b)) ? R1Active : R2Active;
 
     if (RelayState != RelayNewState) {
 
@@ -266,7 +268,7 @@ void setTime() {
     if (input != NULL) {
 
         // ...then it needs to be validated
-        DateTime datetime = extractDateTime(input);
+        DateTime datetime = DateTimeUtils::extractDateTime(input);
 
         lcd.clear();
 
@@ -314,25 +316,25 @@ void flipFlop() {
     if (input != NULL) {
 
         // ...then they need to be validated
-        DateTime time1, time2;
+        DateTime time1 = DateTimeUtils::extractTime1(input);
+        DateTime time2 = DateTimeUtils::extractTime2(input);
 
-        extractTime(input, &time1, &time2);
         lcd.clear();
 
         // If the date is valid, then it's copied to the RTC module
         if (time1.isValid() && time2.isValid()) {
 
-            if (same(&time1,&time2)) {
+            if (DateTimeUtils::same(&time1,&time2)) {
                 lcd.print("Horarios Iguais!");
                 lcd.setCursor(2,1);
                 lcd.print("Ignorando...");
             }
             else {
 
-                if (!same(&mem1, &time1))
+                if (!DateTimeUtils::same(&mem1, &time1))
                     saveFlipFlopTime(&time1, 0);
                 
-                if (!same(&mem2, &time2))
+                if (!DateTimeUtils::same(&mem2, &time2))
                     saveFlipFlopTime(&time2, 6);
 
                 lcd.print("Configuracao OK!");
@@ -358,83 +360,15 @@ void saveFlipFlopTime(DateTime* time, int address) {
 
     int array[3] = { time->hour(), time->minute(), time->second() };
 
-    EEPROMWriteIntArray(array,address);
+    EEPROMUtils::writeIntArray(array,3,address);
 }
 
 void readFlipFlopTimes(DateTime* time1, DateTime* time2) {
 
-    int* array = EEPROMReadIntArray(0);
+    int* array = EEPROMUtils::readIntArray(6,0);
     
     *time1 = DateTime(2020,1,1,array[0],array[1],array[2]);
     *time2 = DateTime(2020,1,1,array[3],array[4],array[5]);
-
-}
-
-int* EEPROMReadIntArray(int address) {
-
-    int* array = (int*) malloc(6 * sizeof(int));
-
-    for (int i=0; i<6; i++, address++)
-        array[i] = EEPROMReadInt(address++);
-
-    return array;
-}
-
-void EEPROMWriteIntArray(int* array, int address) {
-
-    for (int i=0; i<3; i++, address++)
-        EEPROMWriteInt(address++, array[i]);
-
-}
-
-void EEPROMWriteInt(int p_address, int p_value) {
-
-    byte lowByte  = ((p_value >> 0) & 0xFF);
-    byte highByte = ((p_value >> 8) & 0xFF);
-
-    EEPROM.write(p_address, lowByte);
-    EEPROM.write(p_address + 1, highByte);
-
-}
-
-//This function will read a 2 byte integer from the eeprom at the specified address and address + 1
-unsigned int EEPROMReadInt(int p_address) {
-
-    byte lowByte  = EEPROM.read(p_address);
-    byte highByte = EEPROM.read(p_address + 1);
-
-    return ((lowByte << 0) & 0xFF) + ((highByte << 8) & 0xFF00);
-
-}
-
-// Creates a 'DateTime' object from the given 'input'
-DateTime extractDateTime(char* input) {
-
-    // Converting the char input data (from keyboard) to integer values
-    int   day = (input[0] - '0') * 10 + input[1] - '0';
-    int month = (input[2] - '0') * 10 + input[3] - '0';
-    int  year = (input[4] - '0') * 10 + input[5] - '0' + 2000;
-
-    int hour = (input[ 6] - '0') * 10 + input[ 7] - '0';
-    int  min = (input[ 8] - '0') * 10 + input[ 9] - '0';
-    int  sec = (input[10] - '0') * 10 + input[11] - '0';
-
-    return DateTime(year,month,day,hour,min,sec);
-}
-
-void extractTime(char* input, DateTime* time1, DateTime* time2) {
-
-    // Converting the char input data (from keyboard) to integer values
-    int hour1 = (input[ 0] - '0') * 10 + input[ 1] - '0';
-    int  min1 = (input[ 2] - '0') * 10 + input[ 3] - '0';
-    int  sec1 = (input[ 4] - '0') * 10 + input[ 5] - '0';
-
-    int hour2 = (input[ 6] - '0') * 10 + input[ 7] - '0';
-    int  min2 = (input[ 8] - '0') * 10 + input[ 9] - '0';
-    int  sec2 = (input[10] - '0') * 10 + input[11] - '0';
-
-    *time1 = DateTime(2020,1,1,hour1,min1,sec1);
-    *time2 = DateTime(2020,1,1,hour2,min2,sec2);
 
 }
 
@@ -485,31 +419,4 @@ void printDate(char* input) {
 
 void printTime(char* input) {
     printDateTime(input,true);
-}
-
-boolean lower(DateTime* a, DateTime* b) {
-	return (a->hour() < b->hour() ||
-				(a->hour() == b->hour() &&
-					(a->minute() < b->minute() ||
-						(a->minute() == b->minute() && a->second() < b->second())
-					)
-				)
-			);
-}
-
-boolean greater(DateTime* a, DateTime* b) {
-	return (a->hour() > b->hour() ||
-				(a->hour() == b->hour() &&
-					(a->minute() > b->minute() ||
-						(a->minute() == b->minute() && a->second() > b->second())
-					)
-				)
-			);
-}
-
-boolean same(DateTime* a, DateTime* b) {
-	return (a->hour  () == b->hour  () &&
-            a->minute() == b->minute() &&
-            a->second() == b->second()
-			);
 }
