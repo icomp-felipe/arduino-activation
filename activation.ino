@@ -7,17 +7,9 @@
 #include <DateTimeUtils.h>
 #include <EEPROMUtils.h>
 
-/************** Relay Variables **************/
-const int R1 = A3;
-const int R2 = A2;
-
-int RelayNewState, RelayState;
-enum relay { R1Active, R2Active };
-
-/*************** RTC Variables ***************/
-
-// RTC DS3231 Object
-const RTC_DS3231 rtc;
+/************ EEPROM Addresses ***************/
+const int   ACTIVATION_TIME_ADDR = 0;
+const int DEACTIVATION_TIME_ADDR = 6;
 
 /*************** LCD Variables ***************/
 
@@ -47,16 +39,34 @@ const Keypad keypad = Keypad(makeKeymap(keyMap), rowPins, colPins, 4, 4);
 
 /************** Menu Variables ***************/
 
-// State machine for menu control
-enum menu { menuShowTime, menuSetTime, menuFlipFlop, menuAlterDate };
-int curState;
+// Menu state machine variables and constants
+enum menu { menuShowDateTime, menuSetDateTime, menuTimeActivation, menuDateActivation, menuDateTimeActivation };
+int  menuCurrentState;
+
+/************** Relay Variables **************/
+
+// Relay output pins
+const int R1 = A3;
+const int R2 = A2;
+
+// Relay state machine variables and constants
+enum relay { R1Active, R2Active };
+int  RelayNewState, RelayCurrentState;
+
+/*************** RTC Variables ***************/
+
+// RTC DS3231 Object
+const RTC_DS3231 rtc;
+
+/********** Time Control Variables ***********/ 
+
+int lastSecond;
+DateTime now;
+DateTime activationTime, deactivationTime;
 
 /*********************************************/
 /****************** SETUP ********************/
 /*********************************************/
-
-int lastSecond;
-DateTime now;
 
 void setup() {
 
@@ -68,7 +78,7 @@ void setup() {
     lcd.begin(16, 2);
 
     // Setting default variable values
-    curState = menuShowTime;
+    menuCurrentState = menuShowDateTime;
     lastSecond = 0;
 
     // Testing if the RTC module is present
@@ -95,8 +105,12 @@ void setup() {
     }
 
     // Defining which relay will be first activated
-    RelayState = -1;
+    RelayCurrentState = -1;
     RelayNewState = R1Active;
+
+    // Retrieving data from EEPROM
+    activationTime   = DateTimeUtils::readTime(  ACTIVATION_TIME_ADDR);
+    deactivationTime = DateTimeUtils::readTime(DEACTIVATION_TIME_ADDR);
 
     delay(100);
 
@@ -120,15 +134,15 @@ void loop() {
         switch (key) {
 
             case 'A':
-                curState = menuSetTime;
+                menuCurrentState = menuSetDateTime;
                 break;
             
             case 'B':
-                curState = menuFlipFlop;
+                menuCurrentState = menuTimeActivation;
                 break;
             
             case 'C':
-                curState = menuAlterDate;
+                menuCurrentState = menuDateActivation;
                 break;
 
         }
@@ -136,41 +150,49 @@ void loop() {
     }
 
     // Menu control (based on current state)
-    switch (curState) {
+    switch (menuCurrentState) {
 
-        case menuShowTime:
-            if (timeHasPassed())
+        case menuShowDateTime:
+            if (DateTimeUtils::timeHasPassed(lastSecond, now.second()))
                 displayTime();
             break;
 
-        case menuSetTime:
-            setTime();
-            curState = menuShowTime;
+        case menuSetDateTime:
+            setDateTime();
+            menuCurrentState = menuShowDateTime;
             break;
         
-        case menuFlipFlop:
-            flipFlop();
-            curState = menuShowTime;
+        case menuTimeActivation:
+            setTimeActivation();
+            menuCurrentState = menuShowDateTime;
+            break;
+        
+        case menuDateTimeActivation:
+            menuCurrentState = menuShowDateTime;
             break;
         
     }
 
-    // Controls the relays behaviour (synced with time)
-    if (timeHasPassed()) {
-        relayControl();
-        lastSecond = now.second();      // Prevents redundant writes to RAM every cicle
+    // Sync operations need to be inside this 'if' clause. This means they'll only be run as second passes instead of every 'loop' call
+    if (DateTimeUtils::timeHasPassed(lastSecond, now.second())) {
+
+        relayStateControl();
+
+        lastSecond = now.second();
+
     }
     
 }
 
-DateTime a = DateTime(0,0,0,7,30,0);
-DateTime b = DateTime(0,0,0,18,0,0);
+/*********************************************/
+/************ Relay State Machine ************/
+/*********************************************/
 
-void relayControl() {
+void relayStateControl() {
 
-    RelayNewState = (DateTimeUtils::greater(&now,&a) && DateTimeUtils::lower(&now,&b)) ? R1Active : R2Active;
+    RelayNewState = (DateTimeUtils::timeBetween(&now,&activationTime,&deactivationTime)) ? R1Active : R2Active;
 
-    if (RelayState != RelayNewState) {
+    if (RelayCurrentState != RelayNewState) {
 
         if (RelayNewState == R1Active) {
 
@@ -187,16 +209,15 @@ void relayControl() {
 
         }
 
-        RelayState = RelayNewState;
+        RelayCurrentState = RelayNewState;
 
     }
 
 }
 
-// Tells if the time has passed (in terms of seconds)
-boolean timeHasPassed() {
-    return (lastSecond != now.second());
-}
+/*********************************************/
+/************* Menu Functions ****************/
+/*********************************************/
 
 // Displays the current time (every second)
 void displayTime() {
@@ -211,50 +232,8 @@ void displayTime() {
 
 }
 
-char* readKeyboardInput(void (*printer)(char*)) {
-
-    int index = 0;
-
-    // Stores the typed datetime (numbers only: 6 representing date + 6 representing time + 1 storing '\0')
-    char* input = (char*) calloc(13, sizeof(char));
-
-    // Wait for user input until the '#' character is typed
-    while ((key = keypad.getKey()) != '#') {
-        
-        // If something has been typed...
-        if (key != NO_KEY) {
-
-            // Backspace implementation
-            if (key == '*') {
-                if (index > 0)
-                  input[--index] = '\0';
-            }
-          
-            // Storing typed keys (limited to 12 numeric characters)
-            else if ((index < 12) && (key >= '0') && (key <= '9')) {
-
-                input[index++] = key;
-                input[index] = '\0';
-                    
-            }
-
-            // Prints the typed input using the given printer function
-            printer(input);
-            
-        }
-        
-    }
-
-    if (index == 12)
-        return input;
-    
-    free(input);
-
-    return NULL;
-}
-
 // Allows the user to manually adjust the system's date and time
-void setTime() {
+void setDateTime() {
 
     // Displays the menu
     lcd.clear();
@@ -262,13 +241,17 @@ void setTime() {
     lcd.setCursor(0,1);
     lcd.print(" Data  |__:__:__");
 
-    char* input = readKeyboardInput(printDate);
+    // Stores the typed datetime (numbers only: 6 representing date + 6 representing time + 1 storing '\0')
+    char buffer[13];
     
-    // After pressing '*', if the datetime is complete...
-    if (input != NULL) {
+    // Retrieve keyboard numeric data (until '*' is pressed)
+    boolean bufferIsComplete = readKeyboardInput(buffer,12,printDate);
+    
+    // If the datetime data is complete (all 12 numeric characters have been typed)...
+    if (bufferIsComplete) {
 
-        // ...then it needs to be validated
-        DateTime datetime = DateTimeUtils::extractDateTime(input);
+        // ...then it needs converted to a 'DateTime' class instance
+        DateTime datetime = DateTimeUtils::extractDateTime(buffer);
 
         lcd.clear();
 
@@ -289,15 +272,13 @@ void setTime() {
 
 }
 
-void flipFlop() {
+// Enables the user to set the activation/deactivation times
+void setTimeActivation() {
 
-    DateTime mem1, mem2;
-
-    readFlipFlopTimes(&mem1, &mem2);
-
-    if (mem1.isValid() && mem2.isValid()) {
-        sprintf(lcdRow1, " Liga  |%02d:%02d:%02d", mem1.hour(), mem1.minute(), mem1.second());
-        sprintf(lcdRow2, "Desliga|%02d:%02d:%02d", mem2.hour(), mem2.minute(), mem2.second());
+    // This will be only run when EEPROM has no DateTime data for the activation function
+    if (activationTime.isValid() && deactivationTime.isValid()) {
+        sprintf(lcdRow1, " Liga  |%02d:%02d:%02d", activationTime  .hour(), activationTime  .minute(), activationTime  .second());
+        sprintf(lcdRow2, "Desliga|%02d:%02d:%02d", deactivationTime.hour(), deactivationTime.minute(), deactivationTime.second());
     }
     else {
         sprintf(lcdRow1, " Liga  |__:__:__");
@@ -310,37 +291,50 @@ void flipFlop() {
     lcd.setCursor(0,1);
     lcd.print(lcdRow2);
 
-    char* input = readKeyboardInput(printTime);
+    // Stores the typed times (numbers only: 6 representing the activation time + 6 representing the deactivation time + 1 storing '\0')
+    char buffer[13];
     
-    // After pressing '*', if the all the times were completely typed...
-    if (input != NULL) {
+    // Retrieve keyboard numeric data (until '*' is pressed)
+    boolean bufferIsComplete = readKeyboardInput(buffer,12,printTime);
+    
+    // If the buffer data is complete (all 12 numeric characters have been typed)...
+    if (bufferIsComplete) {
 
-        // ...then they need to be validated
-        DateTime time1 = DateTimeUtils::extractTime1(input);
-        DateTime time2 = DateTimeUtils::extractTime2(input);
+        // ...then they need to be converted to 'DateTime' class instances
+        DateTime time1 = DateTimeUtils::extractTime(buffer,0);
+        DateTime time2 = DateTimeUtils::extractTime(buffer,6);
 
         lcd.clear();
 
-        // If the date is valid, then it's copied to the RTC module
+        // If the times are valid...
         if (time1.isValid() && time2.isValid()) {
 
-            if (DateTimeUtils::same(&time1,&time2)) {
+            // ...and they're the same, then they'll be ignored
+            if (DateTimeUtils::sameTime(&time1,&time2)) {
                 lcd.print("Horarios Iguais!");
                 lcd.setCursor(2,1);
                 lcd.print("Ignorando...");
             }
+
+            // Otherwise, they'll be stored in Arduino's EEPROM only if they have been actually changed
             else {
 
-                if (!DateTimeUtils::same(&mem1, &time1))
-                    saveFlipFlopTime(&time1, 0);
+                if (!DateTimeUtils::sameTime(&activationTime, &time1)) {
+                    DateTimeUtils::saveTime(&time1, ACTIVATION_TIME_ADDR);
+                    activationTime = time1;
+                }
                 
-                if (!DateTimeUtils::same(&mem2, &time2))
-                    saveFlipFlopTime(&time2, 6);
+                if (!DateTimeUtils::sameTime(&deactivationTime, &time2)) {
+                    DateTimeUtils::saveTime(&time2, DEACTIVATION_TIME_ADDR);
+                    deactivationTime = time2;
+                }
 
                 lcd.print("Configuracao OK!");
             }
             
         }
+
+        // If the time(s) are not valid, an error message is shown
         else {
             lcd.setCursor(3,0);
             lcd.print("Horario(s)");
@@ -350,39 +344,30 @@ void flipFlop() {
         
         delay(3000);
 
-        free(input);
-
     }
 
 }
 
-void saveFlipFlopTime(DateTime* time, int address) {
+/*********************************************/
+/*************** Utilities *******************/
+/*********************************************/
 
-    int array[3] = { time->hour(), time->minute(), time->second() };
-
-    EEPROMUtils::writeIntArray(array,3,address);
-}
-
-void readFlipFlopTimes(DateTime* time1, DateTime* time2) {
-
-    int* array = EEPROMUtils::readIntArray(6,0);
-    
-    *time1 = DateTime(2020,1,1,array[0],array[1],array[2]);
-    *time2 = DateTime(2020,1,1,array[3],array[4],array[5]);
-
-}
-
+// Prints the dates or times as they're typed
 void printDateTime(char* input, boolean isTimeOnly) {
 
+    // Defines the mask for the first LCD row
     if (isTimeOnly)
         sprintf(lcdRow1,"__:__:__");
     else
         sprintf(lcdRow1,"__/__/__");
 
+    // Defines the mask for the second LCD row
     sprintf(lcdRow2,"__:__:__");
 
+    // Prints the actual data, considering the 'shift' variable to prevent overwriting the separators (: or /)
     for (int i=0, shift = 0; input[i] != '\0'; i++) {
 
+        // Calculating the first LCD row string
         if (i < 6) {
 
             lcdRow1[i + shift] = input[i];
@@ -391,7 +376,8 @@ void printDateTime(char* input, boolean isTimeOnly) {
                 shift++;
           
         }
-            
+        
+        // Calculating the second LCD row string
         else if (i < 12) {
 
             if (i == 6)
@@ -406,6 +392,7 @@ void printDateTime(char* input, boolean isTimeOnly) {
         
     }
 
+    // After calculating the strings, it's time to show them!
     lcd.setCursor(8,0);
     lcd.print(lcdRow1);
     lcd.setCursor(8,1);
@@ -413,10 +400,50 @@ void printDateTime(char* input, boolean isTimeOnly) {
 
 }
 
-void printDate(char* input) {
-    printDateTime(input,false);
+// Prints a date in the first LCD row and a time in the second LCD row
+void printDate(char* date) {
+    printDateTime(date,false);
 }
 
-void printTime(char* input) {
-    printDateTime(input,true);
+// Prints two dates in the LCD rows
+void printTime(char* times) {
+    printDateTime(times,true);
+}
+
+/* Reads 'length' numeric characters to the given 'buffer', displaying the typed data using the given 'printer' function.
+ * To break execution, the '#' character must be typed.
+ * Backspace is available at the '*' character.
+ * Returns 'true' only if all 'length' characters have been typed. */
+boolean readKeyboardInput(char* buffer, int length, void (*printer)(char*)) {
+
+    int index = 0;
+
+    // Wait for user input until the '#' character is typed
+    while ((key = keypad.getKey()) != '#') {
+        
+        // If something has been typed...
+        if (key != NO_KEY) {
+
+            // Backspace implementation
+            if (key == '*') {
+                if (index > 0)
+                  buffer[--index] = '\0';
+            }
+          
+            // Storing typed keys (limited to 12 numeric characters)
+            else if ((index < length) && (key >= '0') && (key <= '9')) {
+
+                buffer[index++] = key;
+                buffer[index] = '\0';
+                    
+            }
+
+            // Prints the typed input using the given printer function
+            printer(buffer);
+            
+        }
+        
+    }
+
+    return (index == length);
 }
